@@ -11,6 +11,9 @@ Usage::
     lm = LM("openai/gpt-4.1", temperature=0.7, max_tokens=4096, base_url="https://api.example.com/v1")
     response: str = lm("Solve this problem...")
 
+    # Bare model names are treated as OpenAI-compatible when a custom base URL is supplied.
+    lm = LM("qwen3-next-80b-a3b-instruct", base_url="https://api.example.com/v1")
+
     # Also works with chat messages
     response = lm([{"role": "user", "content": "Hello"}])
 
@@ -65,7 +68,7 @@ class LM:
                 raise ValueError("Specify only one of base_url or api_base, or make them equal.")
             kwargs["api_base"] = base_url
 
-        self.model = model
+        self.model = self._normalize_model_for_api_base(model, kwargs.get("api_base"))
         self.num_retries = num_retries
         self._total_cost: float = 0.0
         self._total_tokens_in: int = 0
@@ -77,6 +80,12 @@ class LM:
             **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **kwargs,
         }
+
+    @staticmethod
+    def _normalize_model_for_api_base(model: str, api_base: str | None) -> str:
+        if api_base and "/" not in model:
+            return f"openai/{model}"
+        return model
 
     @property
     def total_cost(self) -> float:

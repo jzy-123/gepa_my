@@ -28,8 +28,19 @@ class TestLMInit:
 
     def test_base_url_normalized_to_api_base(self):
         lm = LM("openai/gpt-4.1", base_url="https://custom.example/v1")
+        assert lm.model == "openai/gpt-4.1"
         assert lm.completion_kwargs["api_base"] == "https://custom.example/v1"
         assert "base_url" not in lm.completion_kwargs
+
+    def test_base_url_adds_openai_provider_to_bare_model(self):
+        lm = LM("qwen3-next-80b-a3b-instruct", base_url="https://custom.example/v1")
+        assert lm.model == "openai/qwen3-next-80b-a3b-instruct"
+        assert lm.completion_kwargs["api_base"] == "https://custom.example/v1"
+
+    def test_api_base_adds_openai_provider_to_bare_model(self):
+        lm = LM("qwen3-next-80b-a3b-instruct", api_base="https://custom.example/v1")
+        assert lm.model == "openai/qwen3-next-80b-a3b-instruct"
+        assert lm.completion_kwargs["api_base"] == "https://custom.example/v1"
 
     def test_base_url_conflicts_with_api_base(self):
         with pytest.raises(ValueError, match="Specify only one of base_url or api_base"):
