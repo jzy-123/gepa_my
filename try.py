@@ -6,10 +6,17 @@ from typing import Any
 import gepa
 from gepa.lm import LM
 
-TRAIN = [
+TOY_TRAIN = [
     {"input": "What is 2+2?", "additional_context": {}, "answer": "4"},
     {"input": "What is 3+5?", "additional_context": {}, "answer": "8"},
 ]
+
+AIME_SEED_PROMPT = (
+    "You are a helpful assistant for mathematics competition problems. Solve the problem carefully and "
+    "put the final answer at the end in exactly the format '### <final answer>'."
+)
+
+DEMO_SEED_PROMPT = "You are a helpful assistant. Solve the math problem carefully."
 
 
 class ConsoleFileLogger:
@@ -89,24 +96,73 @@ class DemoCallback:
         )
 
 
-def mock_task_lm(messages: list[dict[str, str]]) -> str:
-    system = messages[0]["content"]
-    question = messages[-1]["content"]
-    if "exact answer" not in system:
-        return "unknown"
-    if "2+2" in question:
-        return "4"
-    if "3+5" in question:
-        return "8"
-    return "unknown"
+def truncate_text(text: str, limit: int = 160) -> str:
+    one_line = " ".join(text.split())
+    if len(one_line) <= limit:
+        return one_line
+    return f"{one_line[: limit - 3]}..."
+
+
+def load_dataset(name: str, train_size: int, val_size: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if name == "toy":
+        trainset = TOY_TRAIN[:train_size]
+        valset = TOY_TRAIN[:val_size]
+        return trainset, valset
+
+    trainset, valset, _ = gepa.examples.aime.init_dataset()
+    return trainset[:train_size], valset[:val_size]
+
+
+def make_answer_lookup(*splits: list[dict[str, Any]]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for split in splits:
+        for item in split:
+            lookup[str(item["input"])] = str(item["answer"])
+    return lookup
+
+
+def make_mock_task_lm(answer_lookup: dict[str, str]):
+    def mock_task_lm(messages: list[dict[str, str]]) -> str:
+        system = messages[0]["content"]
+        question = messages[-1]["content"]
+        lower_system = system.lower()
+        has_final_answer_format = "###" in system or "final answer" in lower_system or "exact answer" in lower_system
+
+        if not has_final_answer_format:
+            return "I solved part of the problem, but I did not state a final answer in the required format."
+
+        answer = answer_lookup.get(question)
+        if answer is None:
+            return "I am not sure.\n### unknown"
+
+        return (
+            "For this local demo, the mock task model emits the dataset answer once the prompt asks for "
+            f"a final answer format.\n{answer}"
+        )
+
+    return mock_task_lm
 
 
 def mock_reflection_lm(prompt: str | list[dict[str, Any]]) -> str:
-    return "```Give the exact answer for simple arithmetic questions.```"
+    return (
+        "```"
+        "You are a careful AIME math solver. Work through the problem step by step, check arithmetic and "
+        "edge cases, and always finish with the final answer on its own line in exactly the format "
+        "'### <final answer>'."
+        "```"
+    )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a tiny, observable GEPA optimization demo.")
+    parser = argparse.ArgumentParser(description="Run an observable GEPA optimization demo.")
+    parser.add_argument(
+        "--dataset",
+        choices=("aime", "toy"),
+        default="aime",
+        help="Dataset to optimize on. Default uses gepa.examples.aime.init_dataset().",
+    )
+    parser.add_argument("--train-size", type=int, default=4, help="Number of training examples to use.")
+    parser.add_argument("--val-size", type=int, default=4, help="Number of validation examples to use.")
     parser.add_argument("--task-model", default="openai/gpt-4.1-mini")
     parser.add_argument("--reflection-model", default="openai/gpt-4.1")
     parser.add_argument(
@@ -134,12 +190,17 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     output_path = Path(args.output)
+    trainset, valset = load_dataset(args.dataset, args.train_size, args.val_size)
+    seed_prompt = AIME_SEED_PROMPT if not args.mock else DEMO_SEED_PROMPT
 
     with ConsoleFileLogger(output_path) as logger:
         logger.log("=" * 80)
         logger.log("GEPA demo run")
         logger.log("=" * 80)
         logger.log(f"output_file: {output_path.resolve()}")
+        logger.log(f"dataset: {args.dataset}")
+        logger.log(f"train_size: {len(trainset)}")
+        logger.log(f"val_size: {len(valset)}")
         logger.log(f"mock_lms: {args.mock}")
         logger.log(f"task_model: {args.task_model}")
         logger.log(f"reflection_model: {args.reflection_model}")
@@ -149,7 +210,7 @@ def main() -> None:
         logger.log("")
 
         if args.mock:
-            task_lm = mock_task_lm
+            task_lm = make_mock_task_lm(make_answer_lookup(trainset, valset))
             reflection_lm = mock_reflection_lm
         else:
             lm_kwargs: dict[str, Any] = {}
@@ -162,16 +223,22 @@ def main() -> None:
             reflection_lm = LM(args.reflection_model, **lm_kwargs)
 
         logger.log("Training examples:")
-        for idx, item in enumerate(TRAIN):
-            logger.log(f"  [{idx}] input={item['input']!r}, answer={item['answer']!r}")
+        for idx, item in enumerate(trainset):
+            logger.log(f"  [{idx}] input={truncate_text(str(item['input']))!r}, answer={item['answer']!r}")
+        logger.log("")
+        logger.log("Validation examples:")
+        for idx, item in enumerate(valset):
+            logger.log(f"  [{idx}] input={truncate_text(str(item['input']))!r}, answer={item['answer']!r}")
+        logger.log("")
+        logger.log(f"Seed prompt: {seed_prompt}")
         logger.log("")
         logger.log("Starting GEPA optimization...")
         logger.log("")
 
         result = gepa.optimize(
-            seed_candidate={"system_prompt": "Answer briefly."},
-            trainset=TRAIN,
-            valset=TRAIN,
+            seed_candidate={"system_prompt": seed_prompt},
+            trainset=trainset,
+            valset=valset,
             task_lm=task_lm,
             reflection_lm=reflection_lm,
             max_metric_calls=args.max_metric_calls,
