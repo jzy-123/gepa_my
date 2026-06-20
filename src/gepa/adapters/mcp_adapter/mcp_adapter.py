@@ -144,6 +144,7 @@ class MCPAdapter(GEPAAdapter[MCPDataInst, MCPTrajectory, MCPOutput]):
         base_system_prompt: str = "You are a helpful assistant with access to tools.",
         enable_two_pass: bool = True,
         failure_score: float = 0.0,
+        task_model_base_url: str | None = None,
     ):
         """
         Initialize MCPAdapter.
@@ -160,6 +161,7 @@ class MCPAdapter(GEPAAdapter[MCPDataInst, MCPTrajectory, MCPOutput]):
             base_system_prompt: Base system prompt template
             enable_two_pass: Use two-pass workflow (tool + answer)
             failure_score: Score assigned when execution fails
+            task_model_base_url: Optional OpenAI-compatible API base URL for string task models
         """
         # Store transport configuration
         self.server_params = server_params
@@ -181,7 +183,7 @@ class MCPAdapter(GEPAAdapter[MCPDataInst, MCPTrajectory, MCPOutput]):
         if isinstance(task_model, str):
             from gepa.lm import LM
 
-            self._lm: LM | None = LM(task_model)
+            self._lm: LM | None = LM(task_model, base_url=task_model_base_url)
         else:
             self._lm = None
         self.task_model = task_model

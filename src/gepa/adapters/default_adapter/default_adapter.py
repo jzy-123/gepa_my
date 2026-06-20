@@ -91,11 +91,13 @@ class DefaultAdapter(GEPAAdapter[DefaultDataInst, DefaultTrajectory, DefaultRoll
         evaluator: Evaluator | None = None,
         max_litellm_workers: int = 10,
         litellm_batch_completion_kwargs: dict[str, Any] | None = None,
+        model_kwargs: dict[str, Any] | None = None,
     ):
+        self.model_kwargs = model_kwargs or {}
         if isinstance(model, str):
             from gepa.lm import LM
 
-            self._lm = LM(model)
+            self._lm = LM(model, **self.model_kwargs)
         else:
             self._lm = None
         self.model = model

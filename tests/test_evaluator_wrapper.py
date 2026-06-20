@@ -555,6 +555,10 @@ class TestMakeLitellmLm:
         assert isinstance(lm, LM)
         assert lm.model == "test-model"
 
+    def test_base_url_forwarded(self):
+        lm = oa.make_litellm_lm("test-model", base_url="https://custom.example/v1")
+        assert lm.completion_kwargs["api_base"] == "https://custom.example/v1"
+
     @patch("litellm.completion")
     def test_string_prompt(self, mock_completion):
         """String prompt should be wrapped in a user message."""

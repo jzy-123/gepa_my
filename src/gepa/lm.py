@@ -8,7 +8,7 @@ Usage::
 
     from gepa.lm import LM
 
-    lm = LM("openai/gpt-4.1", temperature=0.7, max_tokens=4096)
+    lm = LM("openai/gpt-4.1", temperature=0.7, max_tokens=4096, base_url="https://api.example.com/v1")
     response: str = lm("Solve this problem...")
 
     # Also works with chat messages
@@ -45,6 +45,8 @@ class LM:
         temperature: Sampling temperature.
         max_tokens: Maximum tokens to generate.
         num_retries: Number of retries on transient failures (default 3).
+        base_url: Optional OpenAI-compatible API base URL. Normalized to LiteLLM's
+            ``api_base`` parameter.
         **kwargs: Extra keyword arguments forwarded to ``litellm.completion``
             (e.g. ``top_p``, ``stop``, ``api_key``, ``api_base``).
     """
@@ -55,8 +57,14 @@ class LM:
         temperature: float | None = None,
         max_tokens: int | None = None,
         num_retries: int = 3,
+        base_url: str | None = None,
         **kwargs: Any,
     ):
+        if base_url is not None:
+            if "api_base" in kwargs and kwargs["api_base"] != base_url:
+                raise ValueError("Specify only one of base_url or api_base, or make them equal.")
+            kwargs["api_base"] = base_url
+
         self.model = model
         self.num_retries = num_retries
         self._total_cost: float = 0.0

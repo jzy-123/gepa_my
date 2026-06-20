@@ -26,6 +26,15 @@ class TestLMInit:
         assert lm.completion_kwargs["top_p"] == 0.9
         assert lm.completion_kwargs["stop"] == ["\n"]
 
+    def test_base_url_normalized_to_api_base(self):
+        lm = LM("openai/gpt-4.1", base_url="https://custom.example/v1")
+        assert lm.completion_kwargs["api_base"] == "https://custom.example/v1"
+        assert "base_url" not in lm.completion_kwargs
+
+    def test_base_url_conflicts_with_api_base(self):
+        with pytest.raises(ValueError, match="Specify only one of base_url or api_base"):
+            LM("openai/gpt-4.1", base_url="https://a.example/v1", api_base="https://b.example/v1")
+
     def test_reasoning_model_no_special_treatment(self):
         """Reasoning models should NOT get special parameter handling."""
         lm = LM("openai/gpt-5-mini", temperature=0.7, max_tokens=4096)
@@ -177,4 +186,3 @@ class TestLMConformsToProtocol:
     def test_callable(self):
         lm = LM("openai/gpt-4.1")
         assert callable(lm)
-        assert hasattr(lm, "__call__")

@@ -606,8 +606,8 @@ Based on your analysis, propose an improved version that:
     sections.append("""
 ## Output Format
 
-Provide ONLY the improved version within ``` blocks. The output must be a complete, 
-drop-in replacement for the current component (whether it's a prompt, configuration, 
+Provide ONLY the improved version within ``` blocks. The output must be a complete,
+drop-in replacement for the current component (whether it's a prompt, configuration,
 code, or any other parameter type).
 Do not include explanations, commentary, or markdown outside the ``` blocks.""")
 
@@ -734,6 +734,9 @@ class ReflectionConfig:
     reflection_minibatch_size: int | None = None  # Default: 1 for single-instance mode, 3 otherwise
     module_selector: ReflectionComponentSelector | Literal["round_robin", "all"] = "round_robin"
     reflection_lm: LanguageModel | str | None = "openai/gpt-5.1"
+    base_url: str | None = None
+    """Optional OpenAI-compatible API base URL. Forwarded to LiteLLM as
+    ``api_base`` when ``reflection_lm`` is a model name string."""
     reflection_lm_kwargs: dict[str, Any] | None = None
     """Extra keyword arguments forwarded to ``litellm.completion`` when
     ``reflection_lm`` is a model name string (e.g.
@@ -794,6 +797,9 @@ class RefinerConfig:
 
     # Language model for refinement (defaults to reflection_lm if not specified)
     refiner_lm: LanguageModel | str | None = None
+    base_url: str | None = None
+    """Optional OpenAI-compatible API base URL for a string ``refiner_lm``.
+    Defaults to ``ReflectionConfig.base_url`` when not set."""
 
     # Maximum refinement iterations per evaluation
     max_refinements: int = 1
@@ -947,7 +953,16 @@ class GEPAConfig:
         return GEPAConfig(**d)
 
 
-def make_litellm_lm(model_name: str, **kwargs: Any) -> LanguageModel:
+def _with_base_url(kwargs: dict[str, Any] | None, base_url: str | None) -> dict[str, Any]:
+    merged = dict(kwargs or {})
+    if base_url is not None:
+        if "api_base" in merged and merged["api_base"] != base_url:
+            raise ValueError("Specify only one of base_url or api_base, or make them equal.")
+        merged["api_base"] = base_url
+    return merged
+
+
+def make_litellm_lm(model_name: str, base_url: str | None = None, **kwargs: Any) -> LanguageModel:
     """Convert a LiteLLM model name string to a :class:`LanguageModel` callable.
 
     The returned callable conforms to the ``LanguageModel`` protocol and
@@ -960,12 +975,14 @@ def make_litellm_lm(model_name: str, **kwargs: Any) -> LanguageModel:
 
     Args:
         model_name: LiteLLM model identifier (e.g. ``"openai/gpt-5"``).
+        base_url: Optional OpenAI-compatible API base URL. Forwarded as LiteLLM
+            ``api_base``.
         **kwargs: Extra keyword arguments forwarded to ``litellm.completion``
             (e.g. ``reasoning_effort="high"``, ``temperature=0.7``).
     """
     from gepa.lm import LM
 
-    return LM(model_name, **kwargs)
+    return LM(model_name, **_with_base_url(kwargs, base_url))
 
 
 class EvaluatorWrapper:
@@ -1336,7 +1353,9 @@ def optimize_anything(
     # Convert reflection_lm string to callable
     if isinstance(config.reflection.reflection_lm, str):
         config.reflection.reflection_lm = make_litellm_lm(
-            config.reflection.reflection_lm, **(config.reflection.reflection_lm_kwargs or {})
+            config.reflection.reflection_lm,
+            base_url=config.reflection.base_url,
+            **(config.reflection.reflection_lm_kwargs or {}),
         )
     elif config.reflection.reflection_lm is not None and not hasattr(config.reflection.reflection_lm, "total_cost"):
         from gepa.lm import TrackingLM
@@ -1388,7 +1407,10 @@ def optimize_anything(
     # Convert refiner_lm string to LiteLLM callable (if refiner is enabled)
     if config.refiner is not None:
         if isinstance(config.refiner.refiner_lm, str):
-            config.refiner.refiner_lm = make_litellm_lm(config.refiner.refiner_lm)
+            config.refiner.refiner_lm = make_litellm_lm(
+                config.refiner.refiner_lm,
+                base_url=config.refiner.base_url or config.reflection.base_url,
+            )
 
     # Generate seed candidate via LLM if seed_candidate was None
     if needs_seed_generation:

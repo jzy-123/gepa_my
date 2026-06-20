@@ -40,6 +40,15 @@ from gepa.strategies.eval_policy import EvaluationPolicy, FullEvaluationPolicy
 from gepa.utils import FileStopper, StopperProtocol
 
 
+def _with_base_url(kwargs: dict[str, Any] | None, base_url: str | None) -> dict[str, Any]:
+    merged = dict(kwargs or {})
+    if base_url is not None:
+        if "api_base" in merged and merged["api_base"] != base_url:
+            raise ValueError("Specify only one of base_url or api_base, or make them equal.")
+        merged["api_base"] = base_url
+    return merged
+
+
 def optimize(
     seed_candidate: dict[str, str],
     trainset: list[DataInst] | DataLoader[DataId, DataInst],
@@ -93,6 +102,7 @@ def optimize(
     val_evaluation_policy: EvaluationPolicy[DataId, DataInst] | Literal["full_eval"] | None = None,
     acceptance_criterion: AcceptanceCriterion
     | Literal["strict_improvement", "improvement_or_equal"] = "strict_improvement",
+    base_url: str | None = None,
 ) -> GEPAResult[RolloutOutput, DataId]:
     """
     GEPA is an evolutionary optimizer that evolves (multiple) text components of a complex system to optimize them towards a given metric.
@@ -139,6 +149,8 @@ def optimize(
 
     # Reflection-based configuration
     - reflection_lm: A `LanguageModel` instance that is used to reflect on the performance of the candidate program.
+    - base_url: Optional OpenAI-compatible API base URL. When `task_lm` or `reflection_lm` is a model-name string,
+      GEPA forwards this to LiteLLM as `api_base` for all internal LLM calls.
     - candidate_selection_strategy: The strategy to use for selecting the candidate to update. Supported strategies: 'pareto', 'current_best', 'epsilon_greedy'. Defaults to 'pareto'.
     - frontier_type: Strategy for tracking Pareto frontiers. 'instance' tracks per validation example, 'objective' tracks per objective metric, 'hybrid' combines both, 'cartesian' tracks per (example, objective) pair. Defaults to 'instance'.
     - skip_perfect_score: Whether to skip updating the candidate if it achieves a perfect score on the minibatch.
@@ -195,7 +207,8 @@ def optimize(
             "Since no adapter is provided, GEPA requires a task LM to be provided. Please set the `task_lm` parameter."
         )
         active_adapter = cast(
-            GEPAAdapter[DataInst, Trajectory, RolloutOutput], DefaultAdapter(model=task_lm, evaluator=evaluator)
+            GEPAAdapter[DataInst, Trajectory, RolloutOutput],
+            DefaultAdapter(model=task_lm, evaluator=evaluator, model_kwargs=_with_base_url(None, base_url)),
         )
     else:
         assert task_lm is None, (
@@ -230,7 +243,7 @@ def optimize(
     if isinstance(reflection_lm, str):
         from gepa.lm import LM
 
-        reflection_lm_callable = LM(reflection_lm, **(reflection_lm_kwargs or {}))
+        reflection_lm_callable = LM(reflection_lm, **_with_base_url(reflection_lm_kwargs, base_url))
     elif reflection_lm is not None:
         from gepa.lm import TrackingLM
 
