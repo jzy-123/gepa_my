@@ -23,6 +23,7 @@ dependencies = []
 full = [
     # Common dependencies (all Python versions)
     "litellm>=1.83.0",
+    "tenacity>=8.2.3",
     "tqdm>=4.66.1",
     "cloudpickle>=3.0.0",
     # Python < 3.14
