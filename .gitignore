@@ -217,3 +217,4 @@ runs/
 outputs/
 gepa_terminus/
 mlflow.db
+gepa_demo_report*.txt
